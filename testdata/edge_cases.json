@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "id": "cin_real_boundary_1",
+      "snippet": "KSH INTERNATIONAL LIMITED CORPORATE IDENTITY NUMBER: U28129PN1979PLC141032",
+      "value": "U28129PN1979PLC141032",
+      "trap_type": "false_positive_check",
+      "risk": "address_detector",
+      "should_match_any_current_detector": false,
+      "note": "Trailing digits '141032' are a valid 6-digit PIN-code shape, but they are directly preceded by the letters 'PLC' with no separator. A regex \\b boundary sits only between a word char and a non-word char, and letters and digits are both word chars in Go's regexp, so \\b correctly refuses to match here. This case should keep passing; it's here to lock that behavior in as a regression guard, not because it's currently failing."
+    },
+    {
+      "id": "cin_real_adjacent_address",
+      "snippet": "Website: www.in.mpms.mufg.com Contact Person: Shanti Gopalkrishnan SEBI Registration No.: INR000004058 CIN: U67190MH1999PTC118368 Bankers to the Offer Escrow Collection Bank HDFC Bank Limited HDFC Bank Limited, FIG-OPS Department \u2013 Lodha I Think Techno Campus, O-3 Level Next to Kanjurmarg Railway Station, Kanjurmarg (East) Mumbai \u2013 400042, Maharashtra, India",
+      "value": "U67190MH1999PTC118368",
+      "trap_type": "false_positive_check",
+      "risk": "address_detector",
+      "should_match_any_current_detector": false,
+      "expected_address_match": "HDFC Bank Limited, FIG-OPS Department \u2013 Lodha I Think Techno Campus, O-3 Level Next to Kanjurmarg Railway Station, Kanjurmarg (East) Mumbai \u2013 400042, Maharashtra, India",
+      "note": "Real sentence from the prospectus. The PIN 400042 anchors a genuine address, but there is no '.' anywhere between 'Website:' and the PIN, so address_detector.go's 200-char backward scan will very likely swallow the SEBI registration number, the CIN, and the bank name label into the 'address' span it replaces. This is a known, currently-reproducible bug: the redacted output will over-capture non-address text as ADDRESS. Left in deliberately as a documented gap, not a passing case."
+    },
+    {
+      "id": "cin_real_no_swallow",
+      "snippet": "CIN: L65920MH1994PLC080618",
+      "value": "L65920MH1994PLC080618",
+      "trap_type": "false_positive_check",
+      "risk": "credit_card_detector, ssn_detector",
+      "should_match_any_current_detector": false,
+      "note": "21-char alphanumeric CIN with embedded 4-digit year (1994) and 6-digit suffix (080618). Neither the credit-card regex (needs 16 contiguous digits or 4x4 grouped) nor the SSN regex (needs XXX-XX-XXXX with literal dashes) can match a letter-digit-mixed run like this. Included to confirm no cross-contamination from unrelated regex detectors."
+    },
+    {
+      "id": "pan_synthetic_known_gap",
+      "snippet": "Bidders must quote their PAN, ABCPD1234E, on the Bid cum Application Form.",
+      "value": "ABCPD1234E",
+      "trap_type": "recall_gap",
+      "expected_category": "PAN",
+      "currently_detected": false,
+      "note": "No detector for this category exists yet (was never scoped as its own file in the build plan). Standard Indian PAN format: 5 letters, 4 digits, 1 letter (AAAAA9999A), and it IS genuine personal PII \u2014 arguably higher-sensitivity than CIN/ISIN since it's tied to an individual taxpayer, not a company or security. Flagging this as a real scope gap: worth adding a dedicated PanDetector to regex_detectors.go before the eval checkpoint, since ground_truth.json/eval.go will otherwise show a permanent 0% recall entry for a category the redactor should almost certainly be catching."
+    },
+    {
+      "id": "pan_vs_cin_shape_collision",
+      "snippet": "Corporate identity number: U28129PN1979PLC141032. Permanent account number: AABCK1234F.",
+      "value": "AABCK1234F",
+      "trap_type": "precision_check",
+      "expected_category": "PAN",
+      "not_expected_category": "CIN",
+      "currently_detected": false,
+      "note": "Once a PAN detector exists, it must not fire on the CIN in the same sentence and vice versa. A naive 'alphanumeric code of roughly the right length' regex would blur these two apart. PAN is fixed 10 chars (5-4-1 letter-digit-letter); CIN is fixed 21 chars (1-5-2-4-3-6 letter-digit-letter-digit-letter-digit). Length alone should be sufficient to keep them apart if a PAN detector is added, but this case exists to force that design decision explicitly rather than let it be assumed."
+    },
+    {
+      "id": "isin_synthetic_should_not_be_pii",
+      "snippet": "The Equity Shares of our Company shall be identified by the ISIN INE121Z01019 upon listing.",
+      "value": "INE121Z01019",
+      "trap_type": "false_positive_check",
+      "expected_category": null,
+      "should_match_any_current_detector": false,
+      "note": "ISIN never actually appears in this particular prospectus (confirmed by search \u2014 it's a draft-stage RHP, price band and ISIN are only assigned closer to listing), so this is a fully synthetic case. Included anyway because ISIN is a securities identifier, not personal data, and CategoryISIN already exists as an enum value in detector.go with no detector behind it. This case documents an intentional non-goal: ISIN should stay undetected/unredacted even if a future detector starts looking for 12-char alphanumeric codes, since redacting it would corrupt a legitimate, non-sensitive disclosure the prospectus is required to make."
+    },
+    {
+      "id": "dob_vs_incorporation_date_shape",
+      "snippet": "pursuant to a certificate of incorporation dated July 30, 1979, issued by the Registrar of Companies, Maharashtra at Bombay.",
+      "value": null,
+      "trap_type": "false_positive_check",
+      "risk": "dob_detector",
+      "should_match_any_current_detector": false,
+      "note": "Real sentence from the document. Written-out 'Month DD, YYYY' dates like this don't match dobPattern (which only looks for numeric D/M/Y or D-M-Y), so this currently passes safely. Documented as a regression guard: if dobPattern is ever loosened to catch written-month dates (to close a different recall gap), this incorporation date must still not be flagged as a person's date of birth."
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "entries": [
+    { "category": "EMAIL", "value": "priya.sharma@examplecorp.in" },
+    { "category": "EMAIL", "value": "rta.helpdesk@linkintime.co.in" },
+    { "category": "PHONE", "value": "+91 9876543210" },
+    { "category": "PHONE", "value": "08023456789" },
+    { "category": "IP_ADDRESS", "value": "192.168.10.24" },
+    { "category": "IP_ADDRESS", "value": "203.0.113.45" },
+    { "category": "DOB", "value": "14/08/1985" },
+    { "category": "CREDIT_CARD", "value": "4111 1111 1111 1111" },
+    { "category": "ADDRESS", "value": "Plot No. 24, MG Road, Sector 15,\nGurugram, Haryana - 122001, India." },
+    { "category": "ADDRESS", "value": "Whitefield, Bengaluru,\nKarnataka - 560066" }
+  ]
+}
