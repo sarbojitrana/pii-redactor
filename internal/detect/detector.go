@@ -38,11 +38,38 @@ func RunAll(detectors []Detector, text string) []Match {
 	for _, d := range detectors {
 		all = append(all, d.Detect(text)...)
 	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Start != all[j].Start {
-			return all[i].Start < all[j].Start
+	return ResolveOverlaps(all)
+}
+
+func ResolveOverlaps(matches []Match) []Match {
+	byConfidence := make([]Match, len(matches))
+	copy(byConfidence, matches)
+	sort.Slice(byConfidence, func(i, j int) bool {
+		if byConfidence[i].Confidence != byConfidence[j].Confidence {
+			return byConfidence[i].Confidence > byConfidence[j].Confidence
 		}
-		return all[i].End < all[j].End
+		return (byConfidence[i].End - byConfidence[i].Start) > (byConfidence[j].End - byConfidence[j].Start)
 	})
-	return all
+
+	var kept []Match
+	for _, m := range byConfidence {
+		overlaps := false
+		for _, k := range kept {
+			if m.Start < k.End && k.Start < m.End {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			kept = append(kept, m)
+		}
+	}
+
+	sort.Slice(kept, func(i, j int) bool {
+		if kept[i].Start != kept[j].Start {
+			return kept[i].Start < kept[j].Start
+		}
+		return kept[i].End < kept[j].End
+	})
+	return kept
 }

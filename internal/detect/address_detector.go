@@ -38,10 +38,10 @@ func expandBackward(text string, from int) int {
 		limit = 0
 	}
 	boundary := limit
-	for i := from - 1; i >= limit; i-- {
+	for i := from; i < limit; i++ {
 		c := text[i]
-		if c == '.' || c == '\n' {
-			boundary = i + 1
+		if c == '.' || c == '\n' || c == ':' {
+			boundary = i
 			break
 		}
 	}

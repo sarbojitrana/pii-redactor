@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sarbojitrana/pii-redactor/internal/detect"
@@ -35,10 +36,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Fatal: failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir) // Clean up when done
+	defer os.RemoveAll(tempDir)
 
-	// Unpack the DOCX to disk
-	unpacked, err := docx.Unpack(*inPath, tempDir)
+	unpackDir := filepath.Join(tempDir, "unpacked")
+	unpacked, err := docx.Unpack(*inPath, unpackDir)
 	if err != nil {
 		log.Fatalf("Fatal: unpack failed: %v", err)
 	}

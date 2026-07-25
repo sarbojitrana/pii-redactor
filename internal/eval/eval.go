@@ -4,16 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sarbojitrana/pii-redactor/internal/detect"
 )
 
-// GroundTruth represents a manually labeled PII span from testdata/ground_truth.json.
 type GroundTruth struct {
 	Category string `json:"category"`
 	Value    string `json:"value"`
-	Start    int    `json:"start"`
-	End      int    `json:"end"`
+}
+
+type groundTruthFile struct {
+	Entries []GroundTruth `json:"entries"`
 }
 
 type Metrics struct {
@@ -27,65 +29,65 @@ type Metrics struct {
 
 type Report map[string]*Metrics
 
-// Evaluate compares detected matches against a JSON file of ground-truth spans.
+func normalize(s string) string {
+	return strings.TrimSpace(s)
+}
+
 func Evaluate(groundTruthPath string, actualMatches []detect.Match) (Report, error) {
 	data, err := os.ReadFile(groundTruthPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read ground truth: %w", err)
 	}
 
-	var expected []GroundTruth
-	if err := json.Unmarshal(data, &expected); err != nil {
+	var gt groundTruthFile
+	if err := json.Unmarshal(data, &gt); err != nil {
 		return nil, fmt.Errorf("failed to parse ground truth JSON: %w", err)
 	}
 
-	report := make(Report)
-
-	// Pre-populate report keys
-	for _, e := range expected {
-		if _, ok := report[e.Category]; !ok {
-			report[e.Category] = &Metrics{}
+	expectedSets := make(map[string]map[string]bool)
+	for _, e := range gt.Entries {
+		if expectedSets[e.Category] == nil {
+			expectedSets[e.Category] = make(map[string]bool)
 		}
+		expectedSets[e.Category][normalize(e.Value)] = true
 	}
+
+	actualSets := make(map[string]map[string]bool)
 	for _, a := range actualMatches {
 		cat := string(a.Category)
-		if _, ok := report[cat]; !ok {
-			report[cat] = &Metrics{}
+		if actualSets[cat] == nil {
+			actualSets[cat] = make(map[string]bool)
 		}
+		actualSets[cat][normalize(a.Value)] = true
 	}
 
-	// Calculate True Positives and False Negatives
-	for _, exp := range expected {
-		found := false
-		for _, act := range actualMatches {
-			if string(act.Category) == exp.Category && overlaps(exp.Start, exp.End, act.Start, act.End) {
-				found = true
-				break
+	categories := make(map[string]bool)
+	for cat := range expectedSets {
+		categories[cat] = true
+	}
+	for cat := range actualSets {
+		categories[cat] = true
+	}
+
+	report := make(Report)
+	for cat := range categories {
+		expected := expectedSets[cat]
+		actual := actualSets[cat]
+		m := &Metrics{}
+
+		for val := range expected {
+			if actual[val] {
+				m.TruePositives++
+			} else {
+				m.FalseNegatives++
 			}
 		}
-		if found {
-			report[exp.Category].TruePositives++
-		} else {
-			report[exp.Category].FalseNegatives++
-		}
-	}
-
-	// Calculate False Positives
-	for _, act := range actualMatches {
-		valid := false
-		for _, exp := range expected {
-			if string(act.Category) == exp.Category && overlaps(exp.Start, exp.End, act.Start, act.End) {
-				valid = true
-				break
+		for val := range actual {
+			if !expected[val] {
+				m.FalsePositives++
 			}
 		}
-		if !valid {
-			report[string(act.Category)].FalsePositives++
-		}
-	}
 
-	// Compute Precision, Recall, and F1
-	for _, m := range report {
 		if m.TruePositives+m.FalsePositives > 0 {
 			m.Precision = float64(m.TruePositives) / float64(m.TruePositives+m.FalsePositives)
 		}
@@ -95,13 +97,9 @@ func Evaluate(groundTruthPath string, actualMatches []detect.Match) (Report, err
 		if m.Precision+m.Recall > 0 {
 			m.F1Score = 2 * (m.Precision * m.Recall) / (m.Precision + m.Recall)
 		}
+
+		report[cat] = m
 	}
 
 	return report, nil
-}
-
-// overlaps checks if two spans intersect. This is crucial because exact index matching
-// is too brittle (e.g., if a regex captures a trailing space that the human missed).
-func overlaps(start1, end1, start2, end2 int) bool {
-	return start1 < end2 && start2 < end1
 }

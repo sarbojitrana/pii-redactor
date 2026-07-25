@@ -2,106 +2,145 @@ package redactor
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/sarbojitrana/pii-redactor/internal/detect"
 	"github.com/sarbojitrana/pii-redactor/internal/docx"
 	"github.com/sarbojitrana/pii-redactor/internal/mapper"
 )
 
-// Redactor orchestrates the detection and mapping process across a document.
 type Redactor struct {
-	detectors []detect.Detector
-	mapper    *mapper.Mapper 
+	detectors     []detect.Detector
+	mapper        *mapper.Mapper
+	MinConfidence float64
 }
 
-// New creates a new Redactor instance.
 func New(detectors []detect.Detector, m *mapper.Mapper) *Redactor {
 	return &Redactor{
-		detectors: detectors,
-		mapper:    m,
+		detectors:     detectors,
+		mapper:        m,
+		MinConfidence: 0.0,
 	}
 }
 
-// ProcessDocument modifies the docx.Document in-place by redacting detected PII.
+type nodeSpan struct {
+	node  *docx.TextNode
+	text  string
+	start int
+	end   int
+}
+
+type nodeEdit struct {
+	start       int
+	end         int
+	replacement string
+}
+
+func buildSpans(para docx.Paragraph) []nodeSpan {
+	spans := make([]nodeSpan, 0, len(para.TextNodes))
+	pos := 0
+	for i, n := range para.TextNodes {
+		if i > 0 {
+			pos++
+		}
+		t := n.Text()
+		start := pos
+		pos += len(t)
+		spans = append(spans, nodeSpan{node: n, text: t, start: start, end: pos})
+	}
+	return spans
+}
+
+func spansInRange(spans []nodeSpan, start, end int) []nodeSpan {
+	var out []nodeSpan
+	for _, sp := range spans {
+		if sp.end <= start {
+			continue
+		}
+		if sp.start >= end {
+			break
+		}
+		out = append(out, sp)
+	}
+	return out
+}
+
 func (r *Redactor) ProcessDocument(doc *docx.Document) {
 	for _, para := range doc.Paragraphs() {
-		for _, node := range para.TextNodes {
-			r.processNode(node)
-		}
+		r.processParagraph(para)
 	}
 }
 
-func (r *Redactor) processNode(node *docx.TextNode) {
-	originalText := node.Text()
-	if strings.TrimSpace(originalText) == "" {
+func (r *Redactor) processParagraph(para docx.Paragraph) {
+	if len(para.TextNodes) == 0 {
 		return
 	}
 
-	// 1. Detect all potential PII spans
-	rawMatches := detect.RunAll(r.detectors, originalText)
-	if len(rawMatches) == 0 {
+	spans := buildSpans(para)
+	text := para.Text()
+
+	matches := detect.RunAll(r.detectors, text)
+	if len(matches) == 0 {
 		return
 	}
 
-	// 2. Resolve overlapping spans (longest match wins)
-	resolvedMatches := resolveOverlaps(rawMatches)
+	edits := make(map[*docx.TextNode][]nodeEdit)
 
-	// 3. Sort matches by Start index in ascending order for safe reverse-iteration
-	sort.Slice(resolvedMatches, func(i, j int) bool {
-		return resolvedMatches[i].Start < resolvedMatches[j].Start
-	})
+	for _, match := range matches {
+		if match.Confidence < r.MinConfidence {
+			continue
+		}
 
-	// 4. Apply replacements from right to left (end to start)
-	// This prevents earlier replacements from invalidating the indices of later matches.
-	redactedText := originalText
-	for i := len(resolvedMatches) - 1; i >= 0; i-- {
-		match := resolvedMatches[i]
-		
-		// Generate deterministic fake value keyed on category and original value
+		affected := spansInRange(spans, match.Start, match.End)
+		if len(affected) == 0 {
+			continue
+		}
+
 		fakeValue := r.mapper.Map(match)
-		
-		// Splice the string using the original indices
-		redactedText = redactedText[:match.Start] + fakeValue + redactedText[match.End:]
-	}
 
-	// 5. Update the XML node safely
-	node.SetText(redactedText)
-}
-
-// resolveOverlaps implements a "longest match wins" strategy for overlapping spans.
-func resolveOverlaps(matches []detect.Match) []detect.Match {
-	if len(matches) <= 1 {
-		return matches
-	}
-
-	// Sort by length descending, then by confidence descending
-	sort.Slice(matches, func(i, j int) bool {
-		lenI := matches[i].End - matches[i].Start
-		lenJ := matches[j].End - matches[j].Start
-		if lenI != lenJ {
-			return lenI > lenJ
-		}
-		return matches[i].Confidence > matches[j].Confidence
-	})
-
-	var resolved []detect.Match
-	
-	for _, current := range matches {
-		overlap := false
-		for _, accepted := range resolved {
-			// Check if current match boundaries overlap with any accepted match boundaries
-			if current.Start < accepted.End && current.End > accepted.Start {
-				overlap = true
-				break
+		if len(affected) == 1 {
+			sp := affected[0]
+			localStart := match.Start - sp.start
+			if localStart < 0 {
+				localStart = 0
 			}
+			localEnd := match.End - sp.start
+			if localEnd > len(sp.text) {
+				localEnd = len(sp.text)
+			}
+			edits[sp.node] = append(edits[sp.node], nodeEdit{localStart, localEnd, fakeValue})
+			continue
 		}
-		
-		// If it doesn't overlap with a longer, already-accepted match, keep it.
-		if !overlap {
-			resolved = append(resolved, current)
+
+		first := affected[0]
+		firstLocalStart := match.Start - first.start
+		if firstLocalStart < 0 {
+			firstLocalStart = 0
 		}
+		edits[first.node] = append(edits[first.node], nodeEdit{firstLocalStart, len(first.text), fakeValue})
+
+		for _, mid := range affected[1 : len(affected)-1] {
+			edits[mid.node] = append(edits[mid.node], nodeEdit{0, len(mid.text), ""})
+		}
+
+		last := affected[len(affected)-1]
+		lastLocalEnd := match.End - last.start
+		if lastLocalEnd > len(last.text) {
+			lastLocalEnd = len(last.text)
+		}
+		if lastLocalEnd < 0 {
+			lastLocalEnd = 0
+		}
+		edits[last.node] = append(edits[last.node], nodeEdit{0, lastLocalEnd, ""})
 	}
 
-	return resolved
+	for node, nodeEdits := range edits {
+		sort.Slice(nodeEdits, func(i, j int) bool {
+			return nodeEdits[i].start > nodeEdits[j].start
+		})
+		current := node.Text()
+		for _, e := range nodeEdits {
+			current = current[:e.start] + e.replacement + current[e.end:]
+		}
+		node.SetText(current)
+	}
 }

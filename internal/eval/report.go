@@ -53,7 +53,7 @@ const docXMLTemplate = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </w:document>`
 
 // GenerateDocx takes the computed evaluation report and packages it into a valid .docx file.
-func GenerateDocx(report Report, outPath string) error {
+func GenerateDocx(report Report, outPath string) (err error) {
 	outFile, err := os.Create(outPath)
 	if err != nil {
 		return fmt.Errorf("failed to create report docx: %w", err)
@@ -61,7 +61,12 @@ func GenerateDocx(report Report, outPath string) error {
 	defer outFile.Close()
 
 	w := zip.NewWriter(outFile)
-	defer w.Close()
+	defer func() {
+		closeErr := w.Close()
+		if closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close report zip writer: %w", closeErr)
+		}
+	}()
 
 	// Helper function to write a string directly to a file inside the ZIP archive
 	addFile := func(name, content string) error {

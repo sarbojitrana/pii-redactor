@@ -132,14 +132,89 @@ func (d *Document) Paragraphs() []Paragraph {
 
 func (d *Document) Serialize() ([]byte, error) {
 	var buf bytes.Buffer
-	enc := xml.NewEncoder(&buf)
-	for _, tok := range d.tokens {
-		if err := enc.EncodeToken(tok); err != nil {
-			return nil, err
+	tokens := d.tokens
+	depth := 0
+
+	for i := 0; i < len(tokens); i++ {
+		switch t := tokens[i].(type) {
+		case xml.ProcInst:
+			buf.WriteString("<?")
+			buf.WriteString(t.Target)
+			if len(t.Inst) > 0 {
+				buf.WriteByte(' ')
+				buf.Write(t.Inst)
+			}
+			buf.WriteString("?>")
+		case xml.Directive:
+			buf.WriteString("<!")
+			buf.Write(t)
+			buf.WriteByte('>')
+		case xml.Comment:
+			buf.WriteString("<!--")
+			buf.Write(t)
+			buf.WriteString("-->")
+		case xml.CharData:
+			if depth > 0 {
+				if err := xml.EscapeText(&buf, t); err != nil {
+					return nil, err
+				}
+			} else {
+				buf.Write(t)
+			}
+		case xml.StartElement:
+			selfClosing := false
+			if i+1 < len(tokens) {
+				if end, ok := tokens[i+1].(xml.EndElement); ok && end.Name == t.Name {
+					selfClosing = true
+				}
+			}
+			if err := writeElementOpen(&buf, t, selfClosing); err != nil {
+				return nil, err
+			}
+			if selfClosing {
+				i++
+			} else {
+				depth++
+			}
+		case xml.EndElement:
+			writeElementClose(&buf, t)
+			depth--
 		}
 	}
-	if err := enc.Flush(); err != nil {
-		return nil, err
-	}
+
 	return buf.Bytes(), nil
+}
+
+func writeQName(buf *bytes.Buffer, name xml.Name) {
+	if name.Space != "" {
+		buf.WriteString(name.Space)
+		buf.WriteByte(':')
+	}
+	buf.WriteString(name.Local)
+}
+
+func writeElementOpen(buf *bytes.Buffer, t xml.StartElement, selfClosing bool) error {
+	buf.WriteByte('<')
+	writeQName(buf, t.Name)
+	for _, attr := range t.Attr {
+		buf.WriteByte(' ')
+		writeQName(buf, attr.Name)
+		buf.WriteString(`="`)
+		if err := xml.EscapeText(buf, []byte(attr.Value)); err != nil {
+			return err
+		}
+		buf.WriteByte('"')
+	}
+	if selfClosing {
+		buf.WriteString("/>")
+	} else {
+		buf.WriteByte('>')
+	}
+	return nil
+}
+
+func writeElementClose(buf *bytes.Buffer, t xml.EndElement) {
+	buf.WriteString("</")
+	writeQName(buf, t.Name)
+	buf.WriteByte('>')
 }
