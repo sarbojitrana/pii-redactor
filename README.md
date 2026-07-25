@@ -111,6 +111,62 @@ generalizing** to a name/company never seen before — the explicit tradeoff
 we're making, and the seam where NER would replace the gazetteer if this
 became a general-purpose tool.
 
+## Results
+
+Evaluation run against `testdata/synthetic_pii_snippet.docx` with
+`testdata/ground_truth.json` (see `Evaluation_Strategy_and_Metrics.docx`
+for full methodology and interpretation):
+
+| Category | TP | FP | FN | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| EMAIL | 2 | 0 | 0 | 1.00 | 1.00 | 1.00 |
+| PHONE | 0 | 1 | 2 | 0.00 | 0.00 | 0.00 |
+| IP_ADDRESS | 2 | 0 | 0 | 1.00 | 1.00 | 1.00 |
+| DOB | 1 | 0 | 0 | 1.00 | 1.00 | 1.00 |
+| CREDIT_CARD | 1 | 0 | 0 | 1.00 | 1.00 | 1.00 |
+| ADDRESS | 0 | 2 | 2 | 0.00 | 0.00 | 0.00 |
+
+- **EMAIL, IP_ADDRESS, DOB, CREDIT_CARD:** perfect on this test set — all
+  format-anchored with no ambiguity.
+- **PHONE:** broken. The regex's digit-count window is too permissive —
+  it misses real phone numbers and also misfires on unrelated numeric
+  strings (in the real prospectus, this causes SEBI registration numbers
+  like `000013004` to be flagged as phone numbers).
+- **ADDRESS:** broken. Ground-truth addresses span a line break (matching
+  how addresses actually appear in the real document); the current regex
+  does not match across that break, so it misses the real spans and
+  produces false positives instead.
+- **NAME, COMPANY:** not scored numerically — see "Known limitations"
+  below and the qualitative notes in `Evaluation_Strategy_and_Metrics.docx`.
+- **SSN:** implemented, but zero instances in both the real document and
+  this evaluation run, so no score was produced.
+
+Run against the real `Red_Herring_Prospectus.docx` (qualitative, from
+manual inspection of `output/redacted.docx`):
+
+- Most individual names, most company names, registered/corporate office
+  addresses, emails, and most phone numbers were successfully redacted and
+  replaced with consistent fake values (e.g. `KSH INTERNATIONAL LIMITED` →
+  `Sample Industries 7466 Private Limited`, `Sarthak Malvadkar` →
+  `Vivaan Gupta`).
+- Known leaks in this run: the original CIN (`U28129PN1979PLC141032`),
+  website URLs (`www.kshinternational.com`), one surviving occurrence of
+  `Kushal Subbayya Hegde`, and `EVEREST FAMILY TRUST` (while other family
+  trust names were correctly redacted).
+
+## Deliverables / Files in This Submission
+
+| File | What it is |
+|---|---|
+| `README.md` | This file — approach, tech stack, usage, results, limitations |
+| `Evaluation_Strategy_and_Metrics.docx` | Evaluation methodology write-up + full metrics table + interpretation (deliverable #4) |
+| `output/redacted.docx` | The redacted output of `Red_Herring_Prospectus.docx` |
+| `output/eval_report_synthetic.docx` | Auto-generated metrics report from `cmd/eval`, same numbers as the Results table above |
+| `testdata/synthetic_pii_snippet.docx` | Hand-built synthetic test document with known PII values, used as the ground-truth-scored eval target |
+| `testdata/ground_truth.json` | Expected `{category, value}` PII entries matching the synthetic snippet |
+| `testdata/names.txt`, `testdata/companies.txt` | Curated gazetteer source lists of real names/companies found in the source prospectus |
+| Source code (`cmd/`, `internal/`) | The redaction tool and eval tool — see "How to Run" above |
+
 ## Known limitations / false negatives observed
 
 - **CIN not redacted.** A `CategoryCIN` detector exists but a bug currently
