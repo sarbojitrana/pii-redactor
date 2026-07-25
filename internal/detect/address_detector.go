@@ -2,7 +2,7 @@ package detect
 
 import "regexp"
 
-var pinCodePattern = regexp.MustCompile(`\b[1-9]\d{5}\b`)
+var pinCodePattern = regexp.MustCompile(`\b[1-9]\d{2}[\-\s]?\d{3}\b`)
 
 const addressMaxBackwardChars = 200
 const addressMaxForwardChars = 40

@@ -37,19 +37,46 @@ type Paragraph struct {
 	breakAfter map[int]bool
 }
 
-func (p Paragraph) Text() string {
+// NodeOffset is one TextNode's byte range within Paragraph.Text().
+type NodeOffset struct {
+	Node  *TextNode
+	Start int
+	End   int
+}
+
+// join is the single source of truth for both Text() and Offsets() — they
+// can never drift apart because both are views onto this one pass.
+func (p Paragraph) join() (string, []NodeOffset) {
 	var buf bytes.Buffer
+	offsets := make([]NodeOffset, 0, len(p.TextNodes))
 	for i, n := range p.TextNodes {
-		if i > 0 {
-			if p.breakAfter[i-1] {
-				buf.WriteByte('\n')
-			} else {
-				buf.WriteByte(' ')
-			}
+		// Only <w:br>/<w:cr> earn a synthesized character — that's real
+		// structural information Word doesn't otherwise encode as a
+		// literal char. Ordinary node boundaries get NO synthesized
+		// separator: every real word-boundary space in this document is
+		// already a literal character living in one of the adjacent runs
+		// (confirmed against the source XML), so inserting one here only
+		// ever double/triple-spaces text that was already correct.
+		if i > 0 && p.breakAfter[i-1] {
+			buf.WriteByte('\n')
 		}
+		start := buf.Len()
 		buf.WriteString(n.Text())
+		offsets = append(offsets, NodeOffset{Node: n, Start: start, End: buf.Len()})
 	}
-	return buf.String()
+	return buf.String(), offsets
+}
+
+func (p Paragraph) Text() string {
+	s, _ := p.join()
+	return s
+}
+
+// Offsets exposes each node's byte range into Text(), for callers (the
+// redactor) that need to map a match span back onto underlying XML nodes.
+func (p Paragraph) Offsets() []NodeOffset {
+	_, offsets := p.join()
+	return offsets
 }
 
 type Document struct {

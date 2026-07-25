@@ -4,7 +4,7 @@ import "regexp"
 
 var emailPattern = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
 
-var phonePattern = regexp.MustCompile(`\b(?:\+91[\-\s]?)?[6-9]\d{9}\b`)
+var phonePattern = regexp.MustCompile(`\b(?:\+91[\-\s]?)?[6-9]\d{4}[\-\s]?\d{5}\b`)
 
 var ssnPattern = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 

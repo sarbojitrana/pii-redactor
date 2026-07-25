@@ -36,16 +36,10 @@ type nodeEdit struct {
 }
 
 func buildSpans(para docx.Paragraph) []nodeSpan {
-	spans := make([]nodeSpan, 0, len(para.TextNodes))
-	pos := 0
-	for i, n := range para.TextNodes {
-		if i > 0 {
-			pos++
-		}
-		t := n.Text()
-		start := pos
-		pos += len(t)
-		spans = append(spans, nodeSpan{node: n, text: t, start: start, end: pos})
+	offsets := para.Offsets()
+	spans := make([]nodeSpan, 0, len(offsets))
+	for _, o := range offsets {
+		spans = append(spans, nodeSpan{node: o.Node, text: o.Node.Text(), start: o.Start, end: o.End})
 	}
 	return spans
 }
